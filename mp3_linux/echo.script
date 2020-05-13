@@ -1,0 +1,266 @@
+Script started on Wed 15 Apr 2020 08:02:23 PM EDT
+tuser@tutor-vserver:~$ ssh mikehj24@users.cs.umb.edu
+mikehj24@users.cs.umb.edu's password: 
+Welcome to Ubuntu 16.04.6 LTS (GNU/Linux 4.4.0-171-generic x86_64)
+
+60 packages can be updated.
+53 updates are security updates.
+
+
+6 updates could not be installed automatically. For more details,
+see /var/log/unattended-upgrades/unattended-upgrades.log
+
+Authorized users only.
+
+Contact: operator@cs.umb.edu or 617-287-6480
+
+You have new mail.
+Last login: Tue Apr 14 09:17:20 2020 from 75.69.60.201
+
+mikehj24@itserver6:~$ cd cs341/mp3_linux
+mikehj24@itserver6:~/cs341/mp3_linux$ pwd
+/home/mikehj24/cs341/mp3_linux
+mikehj24@itserver6:~/cs341/mp3_linux$ make clean
+rm -f *.o *.syms *.lnx core syms
+mikehj24@itserver6:~/cs341/mp3_linux$ ls -lg
+total 288
+-rw-r--r-- 1 cs341-1G    665 Apr  8 20:32 echoc.c
+-rw-r--r-- 1 cs341-1G   1707 Apr 12 09:57 echo.s
+-rw-r--r-- 1 cs341-1G   2375 Apr  8 20:32 makefile
+-rw-r--r-- 1 cs341-1G 265194 Apr  8 20:32 mp3.pdf
+-rw-r--r-- 1 cs341-1G  12866 Apr  8 20:32 Rubric.docx
+mikehj24@itserver6:~/cs341/mp3_linux$ ls -al
+total 296
+drwxr-sr-x 2 mikehj24 cs341-1G   4096 Apr 15 20:03 .
+drwxrws--- 6 mikehj24 cs341-1G   4096 Apr 10 18:57 ..
+-rw-r--r-- 1 mikehj24 cs341-1G    665 Apr  8 20:32 echoc.c
+-rw-r--r-- 1 mikehj24 cs341-1G   1707 Apr 12 09:57 echo.s
+-rw-r--r-- 1 mikehj24 cs341-1G   2375 Apr  8 20:32 makefile
+-rw-r--r-- 1 mikehj24 cs341-1G 265194 Apr  8 20:32 mp3.pdf
+-rw-r--r-- 1 mikehj24 cs341-1G  12866 Apr  8 20:32 Rubric.docx
+mikehj24@itserver6:~/cs341/mp3_linux$ cat echo.cc.c
+/* echo.c: use assembly language i/o to echo console input */
+/* build with makefile in $pcex:  make A=echo      */
+
+#include <stdio_1.h>
+#include <serial.h>
+
+extern void echo(int conport, unsigned char esc_char);
+void main()
+{
+  int console = sys_get_console_dev(); /* find out current sys console */
+  int conport;
+  char escape;
+
+  switch (console) {
+  case COM1: conport = COM1_BASE;
+    break;
+  case COM2: conport = COM2_BASE;
+    break;
+  default: printf("Expected serial port for console, exiting\n");
+    return;
+  }
+
+  printf("Type escape character and enter\n");
+  if (scanf("%c\n", &escape) != 1)
+    escape = 0x01;
+  echo(conport, escape);
+  return;
+}
+mikehj24@itserver6:~/cs341/mp3_linux$ cat echo.s
+	.data
+
+escapeChar:	 .byte 0
+currentChar:	 .byte 0
+
+	.text
+	.globl echo
+
+echo:
+	pushl %ebp           #stack frame setup
+	movl %esp, %ebp
+	subl $12, %esp 	     #adjust pointer for two passed vars
+	movl 8(%ebp), %edx   #take conport from stack
+	movl 12(%ebp), %ecx  #take esc_char from stack
+	movb %cl,escapeChar  #put esc_char in as var
+	jmp loop0	     #begin loop
+
+loop0:
+	addw $4, %dx	  #move dx to status byte
+	inb (%dx), %al    #copy status byte
+	orb $0x3, %al	   #set RTS and DTR true
+	outb %al, (%dx)
+	jmp loop1      #check modem status
+
+loop1:
+	addw $2, %dx	    #move dx to modem status byte
+	inb (%dx), %al	    #copy modem status byte
+	andb $0xb0, %al	    #check if char == escape
+	cmpb $0xb0, %al
+	jnz loop1	    #if true, move to dataloop
+	subw $1, %dx	    #move dx to read status byte
+	jmp loop2	    #if false, reloop until true
+
+loop2:
+	inb (%dx), %al	        #copy read byte
+	andb $0x1, %al	        #check if data ready
+	jz loop2	        #if no data ready, wait for ready
+	subw $5, %dx		#move dx to data
+	inb (%dx), %al	        #if data ready, put in reg
+	cmpb escapeChar, %al	#check if char is the escchar
+	jz done			#if so, done
+	movb %al, currentChar   #else move data to currentchar
+	addw $5, %dx		#move dx to read byte
+	jmp loop3		#go to sendloop
+
+loop3:
+	inb (%dx), %al		#copy read byte
+	andb $0x20, %al		#check if transmit reg empty
+	jz loop3		#if not empty, wait until it is
+	movb currentChar, %al	#move current char to reg
+	subw $5, %dx		#move to data byte
+	outb %al, (%dx)		#send char
+	addw $5, %dx		#move to read byte
+	jmp loop2		#return to read
+
+done:
+	movl %ebp, %esp	     #replace stack
+	popl %ebp	     #restore ebp
+	ret		     #return (function is void)
+	.end		     #end function
+	
+mikehj24@itserver6:~/cs341/mp3_linux$ make A=echo
+as --32 -o echo.o echo.s
+gcc -gdwarf-2 -gstrict-dwarf -march=i586 -m32 -fno-builtin -fno-stack-protector -nostdlib     -c -Wall -I/home/cheungr/serl/tutor-linux/include -c -o echoc.o echoc.c
+[01m[Kechoc.c:8:6:[m[K [01;35m[Kwarning: [m[Kreturn type of ‘[01m[Kmain[m[K’ is not ‘[01m[Kint[m[K’ [-Wmain]
+ void main()
+[01;32m[K      ^[m[K
+ld -m elf_i386 -N -Ttext 100100 -o echo.lnx \
+	/home/cheungr/serl/tutor-linux/libc_tmp/startup0.o /home/cheungr/serl/tutor-linux/libc_tmp/startup.o \
+	echoc.o echo.o /home/cheungr/serl/tutor-linux/libc_tmp/libc.a
+rm -f syms;nm -n echo.lnx>echo.syms;ln -s echo.syms syms
+mikehj24@itserver6:~/cs341/mp3_linux$ ls -lg
+total 328
+-rw-r--r-- 1 cs341-1G    665 Apr  8 20:32 echoc.c
+-rw-r--r-- 1 cs341-1G   4824 Apr 15 20:04 echoc.o
+-rwxr-xr-x 1 cs341-1G  20528 Apr 15 20:04 echo.lnx
+-rw-r--r-- 1 cs341-1G    808 Apr 15 20:04 echo.o
+-rw-r--r-- 1 cs341-1G   1707 Apr 12 09:57 echo.s
+-rw-r--r-- 1 cs341-1G    819 Apr 15 20:04 echo.syms
+-rw-r--r-- 1 cs341-1G   2375 Apr  8 20:32 makefile
+-rw-r--r-- 1 cs341-1G 265194 Apr  8 20:32 mp3.pdf
+-rw-r--r-- 1 cs341-1G  12866 Apr  8 20:32 Rubric.docx
+lrwxrwxrwx 1 cs341-1G      9 Apr 15 20:04 syms -> echo.syms
+mikehj24@itserver6:~/cs341/mp3_linux$ logout
+Connection to users.cs.umb.edu closed.
+
+tuser@tutor-vserver:~$ scp mikehj24@users.cs.umb.edu:cs341/mp3_linux/echo.^[K8[K* .
+mikehj24@users.cs.umb.edu's password: 
+
+echo.lnx                                        0%    0     0.0KB/s   --:-- ETA
+echo.lnx                                      100%   20KB  20.1KB/s   00:00    
+
+echo.o                                          0%    0     0.0KB/s   --:-- ETA
+echo.o                                        100%  808     0.8KB/s   00:00    
+
+echo.s                                          0%    0     0.0KB/s   --:-- ETA
+echo.s                                        100% 1707     1.7KB/s   00:00    
+
+echo.syms                                       0%    0     0.0KB/s   --:-- ETA
+echo.syms                                     100%  819     0.8KB/s   00:00    
+tuser@tutor-vserver:~$ mtip -f echo.lnx
+For command help, type ~?
+For help on args, rerun without args
+Code starts at 0x100100
+Using board # 1 
+
+Please type <CR> to confirm console setting: 
+Setting console dev to COM2Console: colour EGA+ 80x25
+COM1 at 0x03f8 (irq = 4) is a 16550A
+COM2 at 0x02f8 (irq = 3) is a 16550A
+
+                 Welcome to UMB Tutor for the PC
+   UMB Tutor is a 32-bit protected-mode PC debugger/downloader,
+       based on Linux, UMB Tutor for m68k, and remote gdb.
+UMB Tutor is free software and you are welcome to distribute copies
+of it under certain conditions.  There is no warranty for this program.
+The copyright and warranty provisions follow the Gnu general public
+license, available for view in gdb and elsewhere.  Full sources available.
+--bugs, suggestions, questions to eoneil@cs.umb.edu
+
+Exception 3 at EIP=00057a9b: Breakpoint
+Tutor> ~downloading echo.lnx
+
+.......Done.
+
+
+
+Download done, setting EIP to 100100.
+Tutor> g go 100100
+
+Type escape character and enter
+g
+abc
+Exception 3 at EIP=00100110: Breakpoint
+Tutor> <Esc> 
+A<Esc> 
+A  
+
+Tutor> go 100100
+
+Type escape character and enter
+k
+abcException 3 at EIP=00100110: Breakpoint
+
+
+Tutor> go 100100
+
+Type escape character and enter
+j
+abcdeException 3 at EIP=00100110: Breakpoint
+
+
+
+Tutor> go 100100
+
+Type escape character and enter
+m
+abcde
+xy
+Exception 3 at EIP=00100110: Breakpoint
+
+
+Tutor> go 100100
+
+Type escape character and enter
+m
+abcde
+xyException 3 at EIP=00100110: Breakpoint
+Tutor> go 100100
+
+Type escape character and enter
+z
+abcde
+xy
+Exception 3 at EIP=00100110: Breakpoint
+Tutor> go 100100
+
+Type escape character and enter
+m
+abcde
+xyException 3 at EIP=00100110: Breakpoint
+
+Tutor> go 100100
+
+Type escape character and enter
+z
+abcde
+xyException 3 at EIP=00100110: Breakpoint
+
+Tutor> 
+Quit handler: 
+killing process 1928 Leaving board #1
+tuser@tutor-vserver:~$ exit
+exit
+
+Script done on Wed 15 Apr 2020 08:22:06 PM EDT
